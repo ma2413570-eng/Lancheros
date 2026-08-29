@@ -1,29 +1,263 @@
 package com.shiva.originlauncher;
 
-import android.app.*;
-import android.os.*;
-import android.content.*;
-import android.content.pm.*;
+import android.app.Activity;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.content.Context;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.graphics.Color;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
-import android.view.*;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
 import android.view.inputmethod.InputMethodManager;
-import android.widget.*;
-import java.text.*;
-import java.util.*;
+import android.widget.EditText;
+import android.widget.GridLayout;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+import android.text.TextWatcher;
+import android.text.Editable;
+
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Date;
+import java.util.List;
+import java.util.Locale;
 
 public class MainActivity extends Activity {
-  GridLayout grid; EditText search; ArrayList<AppInfo> apps = new ArrayList<>(); ArrayList<AppInfo> shown = new ArrayList<>(); Handler h=new Handler(Looper.getMainLooper());
-  Runnable clock = new Runnable(){public void run(){updateClock();h.postDelayed(this,1000);}};
-  static class AppInfo { String label; Drawable icon; Intent intent; AppInfo(String l, Drawable i, Intent x){label=l;icon=i;intent=x;} }
-  @Override public void onCreate(Bundle b){super.onCreate(b); setContentView(com.shiva.originlauncher.R.layout.activity_main);
-    grid=findViewById(R.id.grid); search=findViewById(R.id.search); loadApps(); updateClock(); h.post(clock);
-    search.addTextChangedListener(new android.text.TextWatcher(){public void beforeTextChanged(CharSequence s,int a,int c,int d){} public void onTextChanged(CharSequence s,int a,int b,int c){filter(s.toString());} public void afterTextChanged(android.text.Editable e){}});
-  }
-  void updateClock(){TextView t=findViewById(R.id.time), d=findViewById(R.id.date); Date now=new Date(); t.setText(new SimpleDateFormat("HH:mm",Locale.getDefault()).format(now)); d.setText(new SimpleDateFormat("EEEE, d MMMM",Locale.getDefault()).format(now));}
-  void loadApps(){PackageManager pm=getPackageManager(); Intent main=new Intent(Intent.ACTION_MAIN,null); main.addCategory(Intent.CATEGORY_LAUNCHER); List<ResolveInfo> list=pm.queryIntentActivities(main,0); Collections.sort(list,(a,b)->a.loadLabel(pm).toString().compareToIgnoreCase(b.loadLabel(pm).toString())); for(ResolveInfo r:list){String l=r.loadLabel(pm).toString(); Intent x= new Intent(main); x.setClassName(r.activityInfo.packageName,r.activityInfo.name); apps.add(new AppInfo(l,r.loadIcon(pm),x));} shown.clear(); shown.addAll(apps); render();}
-  void filter(String q){shown.clear(); q=q.toLowerCase(Locale.getDefault()); for(AppInfo a:apps) if(a.label.toLowerCase(Locale.getDefault()).contains(q)) shown.add(a); render();}
-  TextView tv(String s){TextView v=new TextView(this); v.setText(s); v.setTextColor(Color.rgb(22,22,26)); v.setTextSize(12); v.setGravity(Gravity.CENTER); v.setMaxLines(2); v.setEllipsize(android.text.TextUtils.TruncateAt.END); return v;}
-  void render(){grid.removeAllViews(); int dp=(int)(getResources().getDisplayMetrics().density+.5f); for(AppInfo a:shown){LinearLayout box=new LinearLayout(this); box.setOrientation(LinearLayout.VERTICAL); box.setGravity(Gravity.CENTER); box.setPadding(4*dp,10*dp,4*dp,6*dp); ImageView iv=new ImageView(this); iv.setImageDrawable(a.icon); box.addView(iv,new LinearLayout.LayoutParams(52*dp,52*dp)); TextView label=tv(a.label); box.addView(label,new LinearLayout.LayoutParams(76*dp,38*dp)); box.setOnClickListener(v->{try{startActivity(a.intent);}catch(Exception e){}}); box.setOnLongClickListener(v->{Toast.makeText(this,a.label,Toast.LENGTH_SHORT).show();return true;}); GridLayout.LayoutParams p=new GridLayout.LayoutParams(); p.width=0; p.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f); p.setMargins(2*dp,2*dp,2*dp,2*dp); grid.addView(box,p);}}
-  @Override protected void onDestroy(){h.removeCallbacks(clock);super.onDestroy();}
+    private GridLayout grid;
+    private EditText search;
+    private ArrayList<AppInfo> apps = new ArrayList<>();
+    private ArrayList<AppInfo> shown = new ArrayList<>();
+    private Handler handler = new Handler(Looper.getMainLooper());
+    private TextView timeView;
+    private TextView dateView;
+    private TextView weatherView;
+    
+    private Runnable clockRunnable = new Runnable() {
+        @Override
+        public void run() {
+            updateClock();
+            handler.postDelayed(this, 1000);
+        }
+    };
+
+    static class AppInfo {
+        String label;
+        Drawable icon;
+        Intent intent;
+
+        AppInfo(String label, Drawable icon, Intent intent) {
+            this.label = label;
+            this.icon = icon;
+            this.intent = intent;
+        }
+    }
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+
+        // Initialize views
+        grid = findViewById(R.id.grid);
+        search = findViewById(R.id.search);
+        timeView = findViewById(R.id.time);
+        dateView = findViewById(R.id.date);
+        weatherView = findViewById(R.id.weather);
+
+        // Load apps
+        loadApps();
+        updateClock();
+        handler.post(clockRunnable);
+
+        // Setup search listener
+        search.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                filter(s.toString());
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {}
+        });
+
+        // Setup long press to remove apps
+        grid.setOnLongClickListener(new View.OnLongClickListener() {
+            @Override
+            public boolean onLongClick(View v) {
+                return false;
+            }
+        });
+    }
+
+    private void updateClock() {
+        Date now = new Date();
+        SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm", Locale.getDefault());
+        SimpleDateFormat dateFormat = new SimpleDateFormat("EEEE, MMMM d", Locale.getDefault());
+        
+        timeView.setText(timeFormat.format(now));
+        dateView.setText(dateFormat.format(now));
+    }
+
+    private void loadApps() {
+        PackageManager pm = getPackageManager();
+        Intent mainIntent = new Intent(Intent.ACTION_MAIN, null);
+        mainIntent.addCategory(Intent.CATEGORY_LAUNCHER);
+        
+        List<ResolveInfo> resolveInfos = pm.queryIntentActivities(mainIntent, 0);
+        
+        // Clear previous apps
+        apps.clear();
+        
+        for (ResolveInfo resolveInfo : resolveInfos) {
+            String label = resolveInfo.loadLabel(pm).toString();
+            Drawable icon = resolveInfo.loadIcon(pm);
+            Intent launchIntent = new Intent(Intent.ACTION_MAIN);
+            launchIntent.setClassName(resolveInfo.activityInfo.packageName, 
+                                      resolveInfo.activityInfo.name);
+            launchIntent.addCategory(Intent.CATEGORY_LAUNCHER);
+            
+            apps.add(new AppInfo(label, icon, launchIntent));
+        }
+        
+        // Sort apps alphabetically
+        Collections.sort(apps, (a, b) -> a.label.compareToIgnoreCase(b.label));
+        
+        // Show all apps initially
+        shown.addAll(apps);
+        render();
+    }
+
+    private void filter(String query) {
+        shown.clear();
+        String lowerQuery = query.toLowerCase(Locale.getDefault());
+        
+        for (AppInfo app : apps) {
+            if (app.label.toLowerCase(Locale.getDefault()).contains(lowerQuery)) {
+                shown.add(app);
+            }
+        }
+        
+        render();
+    }
+
+    private void render() {
+        grid.removeAllViews();
+        
+        int dpValue = (int) (getResources().getDisplayMetrics().density + 0.5f);
+        int itemSize = 80 * dpValue;
+        int padding = 12 * dpValue;
+        
+        for (final AppInfo app : shown) {
+            LinearLayout box = new LinearLayout(this);
+            box.setOrientation(LinearLayout.VERTICAL);
+            box.setGravity(Gravity.CENTER);
+            box.setPadding(padding, padding, padding, padding);
+            
+            // Create grid layout params
+            GridLayout.LayoutParams params = new GridLayout.LayoutParams();
+            params.width = itemSize;
+            params.height = itemSize;
+            params.setMargins(4 * dpValue, 4 * dpValue, 4 * dpValue, 4 * dpValue);
+            box.setLayoutParams(params);
+            
+            // Set background
+            GradientDrawable background = new GradientDrawable();
+            background.setCornerRadius(28 * dpValue);
+            background.setColor(Color.WHITE);
+            box.setBackground(background);
+            
+            // Create icon view
+            LinearLayout iconContainer = new LinearLayout(this);
+            iconContainer.setLayoutParams(new LinearLayout.LayoutParams(
+                    56 * dpValue, 56 * dpValue));
+            
+            // Add icon
+            TextView iconView = new TextView(this);
+            iconView.setLayoutParams(new LinearLayout.LayoutParams(
+                    56 * dpValue, 56 * dpValue));
+            iconView.setGravity(Gravity.CENTER);
+            
+            if (app.icon != null) {
+                iconView.setCompoundDrawablesWithIntrinsicBounds(null, app.icon, null, null);
+            }
+            iconContainer.addView(iconView);
+            
+            // Add label
+            TextView labelView = createLabel(app.label);
+            
+            box.addView(iconContainer);
+            box.addView(labelView);
+            
+            // Set click listener
+            box.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    launchApp(app);
+                }
+            });
+            
+            // Set long press listener for removal
+            box.setOnLongClickListener(new View.OnLongClickListener() {
+                @Override
+                public boolean onLongClick(View v) {
+                    // Optional: add to favorites or remove from view
+                    return true;
+                }
+            });
+            
+            grid.addView(box);
+        }
+    }
+
+    private TextView createLabel(String text) {
+        TextView label = new TextView(this);
+        label.setText(text);
+        label.setTextColor(Color.rgb(22, 22, 26));
+        label.setTextSize(12);
+        label.setGravity(Gravity.CENTER);
+        label.setMaxLines(2);
+        label.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        label.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        return label;
+    }
+
+    private void launchApp(AppInfo app) {
+        try {
+            // Hide keyboard
+            InputMethodManager imm = (InputMethodManager) getSystemService(
+                    Context.INPUT_METHOD_SERVICE);
+            if (imm != null) {
+                imm.hideSoftInputFromWindow(search.getWindowToken(), 0);
+            }
+            
+            // Launch app
+            startActivity(app.intent);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        handler.removeCallbacks(clockRunnable);
+        super.onDestroy();
+    }
+
+    @Override
+    public void onBackPressed() {
+        // Prevent back button from closing the launcher
+        moveTaskToBack(true);
+    }
 }
